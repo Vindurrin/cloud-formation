@@ -1,7 +1,8 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: 'AWS CloudFormation template for an S3 bucket'
+
 Resources:
   S3Bucket:
-    Type: 'AWS::S3::Bucket'
+    Type: AWS::S3::Bucket
     Properties:
-      BucketName: 'matt-s3-bucket-yaml'
+      BucketName: matt-s3-bucket-yaml-20260924-vindurrin
