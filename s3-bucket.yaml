@@ -4,4 +4,4 @@ Resources:
   S3Bucket:
     Type: 'AWS::S3::Bucket'
     Properties:
-      BucketName: 'Matt-S3-Bucket-Yaml'
+      BucketName: 'matt-s3-bucket-yaml'
