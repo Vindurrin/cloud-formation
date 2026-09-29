@@ -2,6 +2,8 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: 'AWS CloudFormation template for a VPC'
 
 Resources:
+
+# Main VPC (the environment)
     MyVPC: 
         Type: 'AWS::EC2::VPC'
         Properties: 
@@ -14,6 +16,7 @@ Resources:
                 - Key: Owner
                   Value: Myself
 
+# AZ 1 Public Subnet, and privatre subnets for app and db (1A)
     PublicSubnet1A:
         Type: 'AWS::EC2::Subnet'
         Properties:
@@ -45,6 +48,7 @@ Resources:
                 - Key: Name
                   Value: DataPrivateSubnet1A
 
+# AZ2 Public Subnet, private for app and db.
     PublicSubnet2B:
         Type: 'AWS::EC2::Subnet'
         Properties:
