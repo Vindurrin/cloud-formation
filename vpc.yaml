@@ -45,7 +45,7 @@ Resources:
                 - Key: Name
                   Value: DataPrivateSubnet1A
 
-    PublicSubnet1B:
+    PublicSubnet2B:
         Type: 'AWS::EC2::Subnet'
         Properties:
             VpcId: !Ref MyVPC
@@ -54,9 +54,9 @@ Resources:
             MapPublicIpOnLaunch: true
             Tags:
                 - Key: Name
-                  Value: PublicSubnet1B
+                  Value: PublicSubnet2B
 
-    AppPrivateSubnet1B:
+    AppPrivateSubnet2B:
         Type: 'AWS::EC2::Subnet'
         Properties:
             VpcId: !Ref MyVPC
@@ -64,9 +64,9 @@ Resources:
             AvailabilityZone: !Select [1, !GetAZs '']
             Tags:
                 - Key: Name
-                  Value: AppPrivateSubnet1B
+                  Value: AppPrivateSubnet2B
 
-    DataPrivateSubnet1B:
+    DataPrivateSubnet2B:
         Type: 'AWS::EC2::Subnet'
         Properties:
             VpcId: !Ref MyVPC
@@ -74,4 +74,4 @@ Resources:
             AvailabilityZone: !Select [1, !GetAZs '']
             Tags:
                 - Key: Name
-                  Value: DataPrivateSubnet1B
+                  Value: DataPrivateSubnet2B
