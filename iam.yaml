@@ -4,6 +4,8 @@ Description: 'IAM CloudFormation Template'
 Resources:
   MyIAMUser:
     Type: 'AWS::IAM::User'
-    Properties
-      ManagedPolicyArns: 'arn:aws:iam::aws:policy/AdministratorAccess'
+    Properties:
       UserName: 'MatthewCFN'
+      ManagedPolicyArns: 
+        - 'arn:aws:iam::aws:policy/AdministratorAccess'
+     
