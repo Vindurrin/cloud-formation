@@ -71,10 +71,10 @@ Resources:
   WebServerSG:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: HTTP from ALB only
+      GroupDescription: HTTP from internet
       VpcId: !Ref MyVPC
       SecurityGroupIngress:
-        - {IpProtocol: tcp, FromPort: 80, ToPort: 80, SourceSecurityGroupId: !Ref AlbSG}
+        - {IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0}
 
   WebServerInstance1A:
     Type: AWS::EC2::Instance
@@ -135,3 +135,7 @@ Resources:
 Outputs:
   AlbDnsName:
     Value: !GetAtt MyLoadBalancer.DNSName
+  WebServer1AUrl:
+    Value: !Sub http://${WebServerInstance1A.PublicIp}
+  WebServer2BUrl:
+    Value: !Sub http://${WebServerInstance2B.PublicIp}
