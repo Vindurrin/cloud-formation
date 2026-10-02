@@ -1,172 +1,83 @@
-AWSTemplateFormatVersion: '2010-09-09'
-Description: 'AWS CloudFormation template for a VPC'
+# Application Load Balancer
+MyLoadBalancer:
+  Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer'
+  Properties:
+    Subnets:
+      - !Ref PublicSubnet2A
+      - !Ref PublicSubnet2B
+    SecurityGroups:
+      - !Ref WebServerSecurityGroup
 
-Resources:
+# Target Group for ALB
+MyTargetGroup:
+  Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+  Properties:
+    VpcId: !Ref MyVPC
+    Port: 80
+    Protocol: 'HTTP'
+    Targets:
+      - Id: !Ref WebServerInstance1A
+      - Id: !Ref WebServerInstance2B
 
-# Main VPC (the environment)
-    MyVPC: 
-        Type: 'AWS::EC2::VPC'
-        Properties: 
-            CidrBlock: '172.16.0.0/16'
-            EnableDnsSupport: true
-            EnableDnsHostnames: true
-            Tags: 
-                - Key: Name
-                  Value: MyVPC
-                - Key: Owner
-                  Value: Myself
+# Listener for ALB
+MyListener:
+  Type: 'AWS::ElasticLoadBalancingV2::Listener'
+  Properties:
+    DefaultActions:
+      - Type: 'forward'
+        TargetGroupArn: !Ref MyTargetGroup
+    LoadBalancerArn: !Ref MyLoadBalancer
+    Port: 80
+    Protocol: 'HTTP'
 
-# AZ 1 Public Subnet, and privatre subnets for app and db (1A)
-    PublicSubnet1A:
-        Type: 'AWS::EC2::Subnet'
-        Properties:
-            VpcId: !Ref MyVPC
-            CidrBlock: '172.16.1.0/24'
-            AvailabilityZone: !Select [0, !GetAZs '']
-            MapPublicIpOnLaunch: true
-            Tags:
-                - Key: Name
-                  Value: PublicSubnet1A
+# Web Server / ALB Security Group
+WebServerSecurityGroup:
+  Type: 'AWS::EC2::SecurityGroup'
+  Properties:
+    GroupDescription: 'Enable HTTP Access'
+    VpcId: !Ref MyVPC
+    SecurityGroupIngress:
+      - IpProtocol: 'tcp'
+        FromPort: '80'
+        ToPort: '80'
+        CidrIp: '0.0.0.0/0'
 
-    AppPrivateSubnet1A:
-        Type: 'AWS::EC2::Subnet'
-        Properties:
-            VpcId: !Ref MyVPC
-            CidrBlock: '172.16.2.0/24'
-            AvailabilityZone: !Select [0, !GetAZs '']
-            Tags:
-                - Key: Name
-                  Value: AppPrivateSubnet1A
+# WebServerInstance1A
+WebServerInstance1A:
+  Type: 'AWS::EC2::Instance'
+  Properties:
+    InstanceType: 't2.micro'
+    ImageId: 'ami-0c618421e207909d0'
+    SubnetId: !Ref PublicSubnet2A
+    SecurityGroupIds:
+      - !Ref WebServerSecurityGroup
+    Tags:
+      - Key: 'Name'
+        Value: 'WebServerInstance1A'
+    UserData:
+      Fn::Base64: !Sub |
+        #!/bin/bash
+        yum install -y httpd
+        systemctl start httpd
+        systemctl enable httpd
+        echo "Hello from My Web Server 1A" > /var/www/html/index.html
 
-# AZ2 Public Subnet, private for app and db.
-    PublicSubnet2B:
-        Type: 'AWS::EC2::Subnet'
-        Properties:
-            VpcId: !Ref MyVPC
-            CidrBlock: '172.16.11.0/24'
-            AvailabilityZone: !Select [1, !GetAZs '']
-            MapPublicIpOnLaunch: true
-            Tags:
-                - Key: Name
-                  Value: PublicSubnet2B
-
-    AppPrivateSubnet2B:
-        Type: 'AWS::EC2::Subnet'
-        Properties:
-            VpcId: !Ref MyVPC
-            CidrBlock: '172.16.12.0/24'
-            AvailabilityZone: !Select [1, !GetAZs '']
-            Tags:
-                - Key: Name
-                  Value: AppPrivateSubnet2B
-    # IGW
-    InternetGateway:
-        Type: 'AWS::EC2::InternetGateway'
-
-        Properties:
-            Tags:
-                - Key: Name
-                  Value: MyVPCInternetGateway
-
-    # Attach IGW to VPC
-    AttachGateway:
-        Type: 'AWS::EC2::VPCGatewayAttachment'
-        Properties:
-            VpcId: !Ref MyVPC
-            InternetGatewayId: !Ref InternetGateway
-
-    # Public Route Table
-    PublicRouteTable:
-        Type: 'AWS::EC2::RouteTable'
-        Properties:
-            VpcId: !Ref MyVPC
-            Tags:   
-                - Key: Name
-                  Value: PublicRouteTable
-    # Public Routes
-    PublicRoute: 
-        Type: 'AWS::EC2::Route'
-        DependsOn: AttachGateway
-        Properties:
-            RouteTableId: !Ref PublicRouteTable
-            DestinationCidrBlock: '0.0.0.0/0'
-            GatewayId: !Ref InternetGateway
-
-    # Subnet Associations
-    PublicSubnet1ARouteTableAssociation:
-        Type: 'AWS::EC2::SubnetRouteTableAssociation'
-        Properties:
-            SubnetId: !Ref PublicSubnet1A
-            RouteTableId: !Ref PublicRouteTable
-
-    # Application Load Balancer
-    MyLoadBalancer:
-        Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer'
-        Properties:
-            Name: MyLoadBalancer
-            Subnets:
-                - !Ref PublicSubnet1A
-                - !Ref PublicSubnet2B
-            SecurityGroups:
-                - !Ref WebServerSecurityGroup
-    
-    # Target Group - load balancer sends traffic to this group
-    MyTargetGroup:
-        Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
-        Properties:
-            Name: MyTargetGroup
-            Protocol: 'HTTP'
-            Port: 80
-            VpcId: !Ref MyVPC
-
-    # Listener - load balancer listens 
-    MyListener:
-        Type: 'AWS::ElasticLoadBalancingV2::Listener'
-        Properties:
-            Protocol: 'HTTP'
-            Port: 80
-            DefaultActions:
-                - Type: forward
-                  TargetGroupArn: !Ref MyTargetGroup
-            LoadBalancerArn: !Ref MyLoadBalancer
-
-    # EC2 Instances
-    # WebServerInstance1A
-    WebServerInstance1A:
-        Type: 'AWS::EC2::Instance'
-        Properties:
-            InstanceType: t3.micro
-            ImageId: ami-06135a74df036ebc9
-            SubnetId: !Ref AppPrivateSubnet1A
-            SecurityGroupIds:
-                - !Ref WebServerSecurityGroup
-            Tags:
-                - Key: Name
-                  Value: WebServerInstance1A
-            UserData:
-                Fn::Base64: !Sub |
-                    #!/bin/bash
-                    yum install -y httpd
-                    systemctl start httpd
-                    systemctl enable httpd
-                    echo "Hello from my webserver 1a" >/var/www/html/index.html
-
-    # WebServerInstance2B
-    WebServerInstance2B:
-        Type: 'AWS::EC2::Instance'
-        Properties:
-            InstanceType: t3.micro
-            ImageId: ami-06135a74df036ebc9
-            SubnetId: !Ref AppPrivateSubnet2B
-            SecurityGroupIds:
-                - !Ref WebServerSecurityGroup
-            Tags:
-                - Key: Name
-                  Value: WebServerInstance2B
-            UserData:
-                Fn::Base64: !Sub |
-                    #!/bin/bash
-                    yum install -y httpd
-                    systemctl start httpd
-                    systemctl enable httpd
-                    echo "Hello from my webserver 2b" >/var/www/html/index.html
+# WebServerInstance2B
+WebServerInstance2B:
+  Type: 'AWS::EC2::Instance'
+  Properties:
+    InstanceType: 't2.micro'
+    ImageId: 'ami-0c618421e207909d0'
+    SubnetId: !Ref PublicSubnet2B
+    SecurityGroupIds:
+      - !Ref WebServerSecurityGroup
+    Tags:
+      - Key: 'Name'
+        Value: 'WebServerInstance2B'
+    UserData:
+      Fn::Base64: !Sub |
+        #!/bin/bash
+        yum install -y httpd
+        systemctl start httpd
+        systemctl enable httpd
+        echo "Hello from My Web Server 1A" > /var/www/html/index.html
