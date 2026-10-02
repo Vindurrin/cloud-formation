@@ -1,83 +1,137 @@
-# Application Load Balancer
-MyLoadBalancer:
-  Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer'
-  Properties:
-    Subnets:
-      - !Ref PublicSubnet2A
-      - !Ref PublicSubnet2B
-    SecurityGroups:
-      - !Ref WebServerSecurityGroup
+AWSTemplateFormatVersion: '2010-09-09'
+Description: VPC with an ALB and two EC2 web targets across 2 AZs
 
-# Target Group for ALB
-MyTargetGroup:
-  Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
-  Properties:
-    VpcId: !Ref MyVPC
-    Port: 80
-    Protocol: 'HTTP'
-    Targets:
-      - Id: !Ref WebServerInstance1A
-      - Id: !Ref WebServerInstance2B
+Parameters:
+  LatestAmi:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
 
-# Listener for ALB
-MyListener:
-  Type: 'AWS::ElasticLoadBalancingV2::Listener'
-  Properties:
-    DefaultActions:
-      - Type: 'forward'
-        TargetGroupArn: !Ref MyTargetGroup
-    LoadBalancerArn: !Ref MyLoadBalancer
-    Port: 80
-    Protocol: 'HTTP'
+Resources:
+  MyVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 172.16.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{Key: Name, Value: MyVPC}]
 
-# Web Server / ALB Security Group
-WebServerSecurityGroup:
-  Type: 'AWS::EC2::SecurityGroup'
-  Properties:
-    GroupDescription: 'Enable HTTP Access'
-    VpcId: !Ref MyVPC
-    SecurityGroupIngress:
-      - IpProtocol: 'tcp'
-        FromPort: '80'
-        ToPort: '80'
-        CidrIp: '0.0.0.0/0'
+  PublicSubnet1A:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 172.16.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags: [{Key: Name, Value: PublicSubnet1A}]
+  PublicSubnet2B:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 172.16.11.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags: [{Key: Name, Value: PublicSubnet2B}]
 
-# WebServerInstance1A
-WebServerInstance1A:
-  Type: 'AWS::EC2::Instance'
-  Properties:
-    InstanceType: 't2.micro'
-    ImageId: 'ami-0c618421e207909d0'
-    SubnetId: !Ref PublicSubnet2A
-    SecurityGroupIds:
-      - !Ref WebServerSecurityGroup
-    Tags:
-      - Key: 'Name'
-        Value: 'WebServerInstance1A'
-    UserData:
-      Fn::Base64: !Sub |
-        #!/bin/bash
-        yum install -y httpd
-        systemctl start httpd
-        systemctl enable httpd
-        echo "Hello from My Web Server 1A" > /var/www/html/index.html
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref MyVPC
+      InternetGatewayId: !Ref InternetGateway
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MyVPC
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  PublicSubnet1AAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1A
+      RouteTableId: !Ref PublicRouteTable
+  PublicSubnet2BAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2B
+      RouteTableId: !Ref PublicRouteTable
 
-# WebServerInstance2B
-WebServerInstance2B:
-  Type: 'AWS::EC2::Instance'
-  Properties:
-    InstanceType: 't2.micro'
-    ImageId: 'ami-0c618421e207909d0'
-    SubnetId: !Ref PublicSubnet2B
-    SecurityGroupIds:
-      - !Ref WebServerSecurityGroup
-    Tags:
-      - Key: 'Name'
-        Value: 'WebServerInstance2B'
-    UserData:
-      Fn::Base64: !Sub |
-        #!/bin/bash
-        yum install -y httpd
-        systemctl start httpd
-        systemctl enable httpd
-        echo "Hello from My Web Server 1A" > /var/www/html/index.html
+  AlbSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: HTTP from internet to ALB
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0}
+  WebServerSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: HTTP from ALB only
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 80, ToPort: 80, SourceSecurityGroupId: !Ref AlbSG}
+
+  WebServerInstance1A:
+    Type: AWS::EC2::Instance
+    DependsOn: PublicRoute
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref LatestAmi
+      SubnetId: !Ref PublicSubnet1A
+      SecurityGroupIds: [!Ref WebServerSG]
+      Tags: [{Key: Name, Value: WebServerInstance1A}]
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          dnf install -y httpd
+          systemctl enable --now httpd
+          echo "Hello from My Web Server 1A" > /var/www/html/index.html
+  WebServerInstance2B:
+    Type: AWS::EC2::Instance
+    DependsOn: PublicRoute
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref LatestAmi
+      SubnetId: !Ref PublicSubnet2B
+      SecurityGroupIds: [!Ref WebServerSG]
+      Tags: [{Key: Name, Value: WebServerInstance2B}]
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          dnf install -y httpd
+          systemctl enable --now httpd
+          echo "Hello from My Web Server 2B" > /var/www/html/index.html
+
+  MyLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    DependsOn: AttachGateway
+    Properties:
+      Subnets: [!Ref PublicSubnet1A, !Ref PublicSubnet2B]
+      SecurityGroups: [!Ref AlbSG]
+  MyTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref MyVPC
+      Port: 80
+      Protocol: HTTP
+      HealthCheckPath: /
+      Targets:
+        - Id: !Ref WebServerInstance1A
+        - Id: !Ref WebServerInstance2B
+  MyListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref MyLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - {Type: forward, TargetGroupArn: !Ref MyTargetGroup}
+
+Outputs:
+  AlbDnsName:
+    Value: !GetAtt MyLoadBalancer.DNSName
