@@ -1,0 +1,15 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS CloudFormation template for a RDS database'
+
+Resources:
+    MyDB:
+        Type: AWS::RDS::DBInstance
+        Properties:
+            DBInstanceIdentifier: 'MyNewRDS'
+            DBInstanceClass: 'db.t3.micro'
+            Engine: 'mysql'
+            EngineVersion: '8.4.11'
+            MasterUsername: 'admin'
+            MasterUserPassword: 'password'
+            AllocatedStorage: '20'
+            BackupRetentionPeriod: 0
