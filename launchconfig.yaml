@@ -55,10 +55,33 @@ Resources:
     Properties:
       SubnetId: !Ref PublicSubnet2
       RouteTableId: !Ref PublicRouteTable
+  # WebServer Security Group
+    WebServerSG:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: HTTP from internet
+        VpcId: !Ref MyVPC
+        SecurityGroupIngress:
+          - {IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0}
+  
+  # Launch Configuration 
+  MyLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: ami-0d27e0fb3bac4d724
+      InstanceType: t3.micro
+      SecurityGroups:
+        - !Ref WebServerSG
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          yum install -y httpd
+          systemctl enable --now httpd
+          echo "Hello from My Web Server" > /var/www/html/index.html
+      
 
-
-# ASG
-# ALB
+# ALB - Application Load Balancer | Target Group | Listeners | Listener Rules | Target Group Attachments
+# ASG - Auto Scaling Group
 # LaunchConfig
 # Alarm
 # EC2 instances 
