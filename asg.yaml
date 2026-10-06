@@ -1,0 +1,204 @@
+# =============================================================================
+# Architecture (Visual)
+# =============================================================================
+#
+#                                   VPC
+#  +-----------------------------------------------------------------------+
+#  |                                                                       |
+#  |                         Launch Configuration                          |
+#  |               +--------------------------------------+                |
+#  |               |                                      |                |
+#  |               |      AZ 1               AZ 2         |                |
+#  |               |                                      |                |
+#  |               |   +---------+        +---------+      |                |
+#  |               |   |   EC2   |        |   EC2   |      |                |
+#  |               |   +---------+        +---------+      |                |
+#  |               |                          |            |                |
+#  |               |                     +---------+       |                |
+#  |               |                     |   EC2   |       |                |
+#  |               |                     +---------+       |                |
+#  |               |                                      |                |
+#  |               +--------------------------------------+                |
+#  |                                                                       |
+#  |          +--------------------------------------------------+         |
+#  |          |              Auto Scaling Group                  |         |
+#  |          |                                                  |         |
+#  |          |  Minimum Capacity: 1                             |         |
+#  |          |  Maximum Capacity: 3                             |         |
+#  |          |  Desired Capacity: 2                             |         |
+#  |          +--------------------------------------------------+         |
+#  |                                                                       |
+#  |                     CloudWatch                                        |
+#  |                     HighCPUAlarm                                      |
+#  |                                                                       |
+#  +-----------------------------------------------------------------------+
+#
+# Components:
+#   - VPC
+#   - Auto Scaling Group spanning multiple Availability Zones
+#   - Launch Configuration used to launch EC2 instances
+#   - EC2 instances distributed across AZ 1 and AZ 2
+#   - CloudWatch HighCPUAlarm monitoring CPU utilization
+#
+# =============================================================================
+
+# =============================================================================
+# Architecture (Text)
+# =============================================================================
+#
+# VPC
+# |
+# +-- Auto Scaling Group
+# |   |
+# |   +-- MinSize: 1
+# |   +-- MaxSize: 3
+# |   +-- DesiredCapacity: 2
+# |   |
+# |   +-- Availability Zone 1
+# |   |   `-- EC2 Instance
+# |   |
+# |   `-- Availability Zone 2
+# |       +-- EC2 Instance
+# |       `-- EC2 Instance
+# |
+# +-- Launch Configuration
+# |   `-- Defines configuration used by ASG to launch EC2 instances
+# |
+# `-- CloudWatch
+#     `-- HighCPUAlarm
+#         `-- Monitors CPU utilization for Auto Scaling
+#
+# =============================================================================
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Auto-Scaling Group Reflecting the Desired Architecture, as described above.
+
+Parameters:
+  LatestAmi:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+Resources:
+  MyVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 172.16.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{Key: Name, Value: MyVPC}]
+
+  PublicSubnet1A:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 172.16.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags: [{Key: Name, Value: PublicSubnet1A}]
+  PublicSubnet2B:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 172.16.11.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags: [{Key: Name, Value: PublicSubnet2B}]
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref MyVPC
+      InternetGatewayId: !Ref InternetGateway
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MyVPC
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  PublicSubnet1AAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1A
+      RouteTableId: !Ref PublicRouteTable
+  PublicSubnet2BAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2B
+      RouteTableId: !Ref PublicRouteTable
+    
+  WebServerSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: HTTP from internet
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0}
+
+  # L:aunch Configuration (probably have to replace with template)
+  MyLaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: !Ref LatestAmi
+      InstanceType: t3.micro
+      SecurityGroups: [!Ref WebServerSG]
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          dnf install -y httpd
+          systemctl enable --now httpd
+          echo "Hello from autoscaling instance" > /var/www/html/index.html
+
+# Auto Scaling Greoup
+  MyAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    DependsOn: [PublicRoute, PublicSubnet1AAssoc, PublicSubnet2BAssoc]
+    Properties:
+      LaunchConfigurationName: !Ref MyLaunchConfiguration
+      VPCZoneIdentifier: [!Ref PublicSubnet1A, !Ref PublicSubnet2B]
+      MinSize: 1
+      MaxSize: 3
+      DesiredCapacity: 2
+
+  # Alarm
+  HighCPUAlarm:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmDescription: 'Alarm when CPU exceeds 70%'
+      ComparisonOperator: 'GreaterThanThreshold'
+      EvaluationPeriods: '1'
+      MetricName: 'CPUUtilization'
+      Namespace: 'AWS/EC2'
+      Period: '300'
+      Statistic: 'Average'
+      Threshold: '70'
+      AlarmActions: [!Ref ScaleOutPolicy]
+      Dimensions:
+        - Name: 'AutoScalingGroupName'
+          Value: !Ref MyAutoScalingGroup
+  
+  # Scale Out Policy
+  ScaleOutPolicy:
+    Type: 'AWS::AutoScaling::ScalingPolicy'
+    Properties:
+      AutoScalingGroupName: !Ref MyAutoScalingGroup
+      AdjustmentType: 'ChangeInCapacity'
+      PolicyType: 'SimpleScaling'
+      Cooldown: '300'
+      ScalingAdjustment: '1'
+
+  # Scale In Policy
+  ScaleInPolicy:
+    Type: 'AWS::AutoScaling::ScalingPolicy'
+    Properties:
+      AutoScalingGroupName: !Ref MyAutoScalingGroup
+      PolicyType: 'SimpleScaling'
+      AdjustmentType: 'ChangeInCapacity'
+      Cooldown: '300'
+      ScalingAdjustment: '-1'
