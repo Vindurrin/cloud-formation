@@ -141,26 +141,29 @@ Resources:
       SecurityGroupIngress:
         - {IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0}
 
-  # L:aunch Configuration (probably have to replace with template)
-  MyLaunchConfiguration:
-    Type: AWS::AutoScaling::LaunchConfiguration
+  # Launch Template
+  MyLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
     Properties:
-      ImageId: !Ref LatestAmi
-      InstanceType: t3.micro
-      SecurityGroups: [!Ref WebServerSG]
-      UserData:
-        Fn::Base64: |
-          #!/bin/bash
-          dnf install -y httpd
-          systemctl enable --now httpd
-          echo "Hello from autoscaling instance" > /var/www/html/index.html
+      LaunchTemplateData:
+        ImageId: !Ref LatestAmi
+        InstanceType: t3.micro
+        SecurityGroupIds: [!Ref WebServerSG]
+        UserData:
+          Fn::Base64: |
+            #!/bin/bash
+            dnf install -y httpd
+            systemctl enable --now httpd
+            echo "Hello from autoscaling instance" > /var/www/html/index.html
 
 # Auto Scaling Greoup
   MyAutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
     DependsOn: [PublicRoute, PublicSubnet1AAssoc, PublicSubnet2BAssoc]
     Properties:
-      LaunchConfigurationName: !Ref MyLaunchConfiguration
+      LaunchTemplate:
+        LaunchTemplateId: !Ref MyLaunchTemplate
+        Version: !GetAtt MyLaunchTemplate.LatestVersionNumber
       VPCZoneIdentifier: [!Ref PublicSubnet1A, !Ref PublicSubnet2B]
       MinSize: 1
       MaxSize: 3
@@ -192,13 +195,3 @@ Resources:
       PolicyType: 'SimpleScaling'
       Cooldown: '300'
       ScalingAdjustment: '1'
-
-  # Scale In Policy
-  ScaleInPolicy:
-    Type: 'AWS::AutoScaling::ScalingPolicy'
-    Properties:
-      AutoScalingGroupName: !Ref MyAutoScalingGroup
-      PolicyType: 'SimpleScaling'
-      AdjustmentType: 'ChangeInCapacity'
-      Cooldown: '300'
-      ScalingAdjustment: '-1'
